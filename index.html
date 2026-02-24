@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mine Sweeper</title>
+  </head>
+  <body>
+    <div id="board"></div>
+  </body>
+  <script>
+    const Difficulty = {
+      Easy: {
+        size: 6,
+        ratio: 90,
+      },
+      Normal: {
+        size: 10,
+        ratio: 80,
+      },
+      Hard: {
+        size: 20,
+        ratio: 70,
+      },
+    };
+
+    class Cell {
+      static initial = "O";
+      static toggled = "·";
+      static flag = "F";
+      static size = 3;
+
+      constructor(x, y, content) {
+        this.x = Math.round(x);
+        this.y = Math.round(y);
+        this.width = Cell.size;
+        this.height = Cell.size;
+        this.content = content;
+        this.revealed = false;
+        this.neighbors = [];
+      }
+
+      onClick(board, kind) {
+        if (kind === "right" && !this.revealed) {
+          console.log("TEST");
+          this.content = this.content === Cell.flag ? Cell.initial : Cell.flag;
+        }
+      }
+
+      getBox() {
+        return [
+          ["╔", "-", "╗"],
+          ["|", this.content, "|"],
+          ["╚", "_", "╝"],
+        ];
+      }
+    }
+
+    class EmptyCell extends Cell {
+      constructor(x, y) {
+        super(x, y, Cell.initial);
+      }
+
+      onClick(board, kind) {
+        if (kind === "right") super.onClick(board, kind);
+        if (kind === "left") {
+          this.reveal();
+        }
+      }
+
+      reveal() {
+        if (this.revealed) return;
+
+        this.revealed = true;
+
+        let count = 0;
+        this.neighbors.forEach((n) => {
+          count += n instanceof MineCell ? 1 : 0;
+        });
+
+        if (count > 0) this.content = count;
+        else {
+          this.content = Cell.toggled;
+          this.neighbors.forEach((n) => {
+            n?.reveal();
+          });
+        }
+      }
+    }
+
+    class MineCell extends Cell {
+      constructor(x, y) {
+        super(x, y, Cell.initial);
+      }
+
+      onClick(board, kind) {
+        if (kind === "right") super.onClick(board, kind);
+        else {
+          super.content = "M";
+          board.gameOver();
+        }
+      }
+
+      reveal() {}
+    }
+
+    class Board {
+      constructor(game, difficulty) {
+        this.elements = [];
+        this.game = game;
+        this.generateElements(difficulty);
+        this.width = Math.max(
+          ...this.elements.map(
+            (element) =>
+              element.x + Math.max(...element.getBox().map((r) => r.length)),
+          ),
+        );
+        this.height = Math.max(
+          ...this.elements.map(
+            (element) => element.y + element.getBox().length,
+          ),
+        );
+      }
+
+      gameOver() {
+        this.game.gameOver();
+      }
+
+      generateElements(difficulty) {
+        const size = difficulty.size;
+        const ratio = difficulty.ratio;
+        const elements = [...new Array(size * size)].map((_, index) => {
+          const x = index % size;
+          const y = Math.floor(index / size) % size;
+          const value = Math.random() * 100;
+
+          if (value > ratio) return new MineCell(x * Cell.size, y * Cell.size);
+          else return new EmptyCell(x * Cell.size, y * Cell.size);
+        });
+
+        this.elements = elements;
+
+        elements.forEach((element) => {
+          const x = element.x + 1;
+          const y = element.y + 1;
+
+          const niggas = [];
+
+          niggas.push(
+            this.getElement(x - Cell.size, y - Cell.size),
+            this.getElement(x, y - Cell.size),
+            this.getElement(x + Cell.size, y - Cell.size),
+            this.getElement(x + Cell.size, y),
+            this.getElement(x + Cell.size, y + Cell.size),
+            this.getElement(x, y + Cell.size),
+            this.getElement(x - Cell.size, y + Cell.size),
+            this.getElement(x - Cell.size, y),
+          );
+
+          element.neighbors = niggas;
+        });
+      }
+
+      printBoard() {
+        this.tiles = [...new Array(this.height)].map((_) => [
+          ...[...new Array(this.width)].map((_) => ""),
+        ]);
+
+        this.elements.map((element) => {
+          element
+            .getBox()
+            .map((row, boxY) =>
+              row.map(
+                (boxTile, boxX) =>
+                  (this.tiles[element.y + boxY][element.x + boxX] = boxTile),
+              ),
+            );
+        });
+
+        return this.tiles;
+      }
+
+      getElement(x, y) {
+        for (const element of this.elements) {
+          if (
+            x < element.x + element.width &&
+            x > element.x &&
+            y < element.y + element.height &&
+            y > element.y
+          )
+            return element;
+        }
+      }
+
+      onClick(x, y, kind) {
+        const element = this.getElement(x, y);
+        element?.onClick(this, kind);
+      }
+
+      render() {
+        return this.printBoard()
+          .map((row) => row.join(""))
+          .join("\r\n");
+      }
+    }
+
+    class Game {
+      static gameOverText = "! Game Over Bitch !";
+      constructor() {
+        this.gameOverFlag = false;
+        this.board = new Board(this, Difficulty.Normal);
+        this.difficulty = Difficulty.Easy;
+        this.boardElement = document.getElementById("board");
+        this.boardElement.onclick = (e) => this.onClick(e, this, "left");
+        this.boardElement.addEventListener("contextmenu", (e) =>
+          this.onClick(e, this, "right"),
+        );
+        document.body.onkeypress = (e) => {
+          e.keyCode === 32 ? this.restart() : false;
+          e.keyCode === 49 ? this.restart(Difficulty.Easy) : false;
+          e.keyCode === 50 ? this.restart(Difficulty.Normal) : false;
+          e.keyCode === 51 ? this.restart(Difficulty.Hard) : false;
+        };
+      }
+
+      restart(difficulty = Difficulty.Normal) {
+        this.board = new Board(this, difficulty);
+        this.gameOverFlag = false;
+        this.render();
+      }
+
+      gameOver() {
+        this.gameOverFlag = true;
+      }
+
+      onClick(e, game, kind) {
+        e.preventDefault();
+        const bounding = e.target.getBoundingClientRect();
+
+        console.log(e.target, e.clientX, bounding);
+
+        if (this.gameOverFlag) this.restart();
+
+        this.board.onClick(
+          Math.round(
+            ((e.clientX - bounding.x) * this.board.width) / bounding.width,
+          ),
+          Math.round(
+            ((e.clientY - bounding.y) * this.board.height) / bounding.height,
+          ),
+          kind,
+        );
+
+        this.render();
+      }
+
+      generateText(text) {
+        const padding = [...new Array(this.board.width)]
+          .map((_) => "·")
+          .join("");
+        const title =
+          padding.substring(0, padding.length / 2 - text.length / 2 + 1) +
+          text +
+          padding.substring(0, padding.length / 2 - text.length / 2) +
+          "\r\n";
+
+        return padding + "\r\n" + title + padding + "\r\n";
+      }
+
+      render() {
+        this.boardElement.innerText = "";
+
+        if (this.gameOverFlag) {
+          this.boardElement.innerText = this.generateText(Game.gameOverText);
+          this.boardElement.innerText += this.generateText(
+            "Press 'Space' to RestartX",
+          );
+        }
+
+        this.boardElement.innerText += this.board.render();
+        this.boardElement.style.fontFamily =
+          "Noto Mono, Roboto Mono, Source Code Pro, monospace";
+        // this.element.innerText += "\r\n";
+        // this.element.innerText += this.generateText(
+        //   "Press 1 = Bae"
+        // );
+        // this.element.innerText += this.generateText(
+        //   "Press 2 = Ok."
+        // );
+        // this.element.innerText += this.generateText(
+        //   "Press 3 = Jesus"
+        // );
+      }
+    }
+
+    class Page {}
+
+    const game = new Game();
+
+    game.render();
+  </script>
+  <style>
+    body {
+      height: 100vh;
+      display: flex;
+      margin: auto auto;
+      letter-spacing: 1ch;
+      width: fit-content;
+      background-color: black;
+      color: green;
+      cursor: pointer;
+    }
+  </style>
+</html>
