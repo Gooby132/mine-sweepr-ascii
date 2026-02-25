@@ -9,6 +9,16 @@
     <div id="board"></div>
   </body>
   <script>
+    const Keyboardkeys = {
+      Space: 32,
+      One: 49,
+      Two: 50,
+      Three: 51,
+      Up: 38,
+      Down: 40,
+      Enter: 13
+    }
+
     const Difficulty = {
       Easy: {
         size: 6,
@@ -42,7 +52,6 @@
 
       onClick(board, kind) {
         if (kind === "right" && !this.revealed) {
-          console.log("TEST");
           this.content = this.content === Cell.flag ? Cell.initial : Cell.flag;
         }
       }
@@ -104,11 +113,59 @@
       reveal() {}
     }
 
-    class Board {
-      constructor(game, difficulty) {
+    class Renderer {
+      constructor(boardElement) {
+        this.boardElement = boardElement;
+        this.width = 0;
+      }
+
+      next(width = 20, height = 20) {
+        this.boardElement.textContent = "";
+      }
+
+      appendText(...text) {
+        this.width = text[0].split("\r\n")[0]?.length ?? 0;
+        this.boardElement.textContent += text.join("\r\n");
+      }
+
+      generateTitle(text, width = 10, delimiter = "·") {
+        return (
+          this.generateTextRow("", width, delimiter) +
+          this.generateTextRow(text, width, delimiter) +
+          this.generateTextRow("", width, delimiter)
+        );
+      }
+
+      generateTextRow(text, width = 10, delimiter = "·") {
+        const padding = [...new Array(width)].map((_) => delimiter).join("");
+        const title =
+          padding.substring(0, padding.length / 2 - text.length / 2 + 1) +
+          text +
+          padding.substring(0, padding.length / 2 - text.length / 2) +
+          "\r\n";
+
+        return title;
+      }
+    }
+
+    class Scene {
+      constructor(renderer, width, height, endScene) {
+        this.width = width;
+        this.height = height;
+        this.renderer = renderer;
+        this.renderer.next();
+        this.endScene = endScene;
+      }
+
+      onClick(width, height) {}
+    }
+
+    class BoardScene extends Scene {
+      constructor(renderer, difficulty, endScene) {
+        super(renderer, 0, 0, endScene);
         this.elements = [];
-        this.game = game;
-        this.generateElements(difficulty);
+        this.gameOverFlag = false;
+        this.generateCells(difficulty);
         this.width = Math.max(
           ...this.elements.map(
             (element) =>
@@ -123,10 +180,11 @@
       }
 
       gameOver() {
-        this.game.gameOver();
+        this.gameOverFlag = true;
+        this.endScene({ game: "lost" });
       }
 
-      generateElements(difficulty) {
+      generateCells(difficulty) {
         const size = difficulty.size;
         const ratio = difficulty.ratio;
         const elements = [...new Array(size * size)].map((_, index) => {
@@ -182,133 +240,230 @@
 
       getElement(x, y) {
         for (const element of this.elements) {
-          if (
-            x < element.x + element.width &&
-            x > element.x &&
-            y < element.y + element.height &&
-            y > element.y
-          )
-            return element;
+          const collisionY = y >= element.y && y <= element.y + element.height;
+          const collisionX = x >= element.x && x <= element.x + element.width;
+          if (collisionX && collisionY) return element;
         }
       }
 
-      onClick(x, y, kind) {
-        const element = this.getElement(x, y);
-        element?.onClick(this, kind);
+      onClick({ type, x, y, kind }) {
+        if (type === "keyboard") return;
+
+        const element = this.getElement(x * this.width, y * this.height);
+        element.onClick(this, kind);
+        if (this.gameOverFlag) return;
+        this.renderer.next();
+        this.render();
       }
 
       render() {
-        return this.printBoard()
-          .map((row) => row.join(""))
-          .join("\r\n");
+        this.renderer.appendText(
+          this.printBoard()
+            .map((row) => row.join(""))
+            .join("\r\n"),
+        );
+      }
+    }
+
+    class GameOverScene extends Scene {
+      constructor(renderer, nextScene) {
+        super(renderer, 45, 0, nextScene);
+      }
+
+      onClick({ type, keyCode }) {
+        if (type === "keyboard") {
+          if (keyCode === Keyboardkeys.Space) {
+            this.endScene();
+          }
+          return;
+        }
+      }
+
+      render(element) {
+        this.renderer.appendText(
+          this.renderer.generateTitle(Game.gameOverText, this.width),
+        );
+        this.renderer.appendText(
+          this.renderer.generateTitle("Press 'Space' to RestartX", this.width),
+        );
+      }
+    }
+
+    class StartGameScene extends Scene {
+      constructor(renderer, endScene) {
+        super(renderer, 45, 80, endScene);
+        this.arrow = {
+          text: "=>",
+          index: 1,
+          count: 3,
+        };
+      }
+
+      getArrow(position) {
+        return (
+          (Math.abs(this.arrow.index) % this.arrow.count === position
+            ? " " + this.arrow.text
+            : "   ") + " "
+        );
+      }
+
+      onClick({ type, kind, keyCode }) {
+        if (kind === "keyPress") {
+          keyCode === Keyboardkeys.One
+            ? this.endScene({ difficulty: Difficulty.Easy })
+            : false;
+          keyCode === Keyboardkeys.Two
+            ? this.endScene({ difficulty: Difficulty.Normal })
+            : false;
+          keyCode === Keyboardkeys.Three
+            ? this.endScene({ difficulty: Difficulty.Hard })
+            : false;
+          keyCode === Keyboardkeys.Up ? this.arrow.index-- : false;
+          keyCode === Keyboardkeys.Down ? this.arrow.index++ : false;
+          if (keyCode === Keyboardkeys.Enter) {
+            this.endScene({
+              difficulty:
+                Object.values(Difficulty)[
+                  Math.abs(this.arrow.index) % this.arrow.count
+                ],
+            });
+            return;
+          }
+        }
+
+        this.renderer.next();
+        this.render();
+      }
+
+      render(element) {
+        this.renderer.appendText(
+          this.renderer.generateTextRow("", this.width, " "),
+          this.renderer.generateTitle(
+            "Welcome to MINE SWEEPERS ASCII (modern)",
+            this.width,
+          ),
+          this.renderer.generateTitle(
+            "Use Your Arrows to Select Difficulty",
+            this.width,
+            " ",
+          ),
+          this.renderer.generateTitle(
+            this.getArrow(0) + "Press 1 - if you are a baby",
+            this.width,
+          ),
+          this.renderer.generateTitle(
+            this.getArrow(1) + "Press 2 - if your name is joe",
+            this.width,
+          ),
+          this.renderer.generateTitle(
+            this.getArrow(2) + "Press 3 - if your name is gay",
+            this.width,
+          ),
+          this.renderer.generateTextRow(
+            this.arrow.index === 2 ? "Feeling gangsta?" : "",
+            this.width,
+            " ",
+          ),
+          this.renderer.generateTitle(
+            "*** And then Press Enter ***",
+            this.width,
+            " ",
+          ),
+        );
       }
     }
 
     class Game {
       static gameOverText = "! Game Over Bitch !";
       constructor() {
-        this.gameOverFlag = false;
-        this.board = new Board(this, Difficulty.Normal);
-        this.difficulty = Difficulty.Easy;
-        this.boardElement = document.getElementById("board");
-        this.boardElement.onclick = (e) => this.onClick(e, this, "left");
-        this.boardElement.addEventListener("contextmenu", (e) =>
+        const boardElement = document.getElementById("board");
+        boardElement.onclick = (e) => this.onClick(e, this, "left");
+        boardElement.addEventListener("contextmenu", (e) =>
           this.onClick(e, this, "right"),
         );
         document.body.onkeypress = (e) => {
-          e.keyCode === 32 ? this.restart() : false;
-          e.keyCode === 49 ? this.restart(Difficulty.Easy) : false;
-          e.keyCode === 50 ? this.restart(Difficulty.Normal) : false;
-          e.keyCode === 51 ? this.restart(Difficulty.Hard) : false;
+          this.currentScene.onClick({
+            type: "keyboard",
+            kind: "keyPress",
+            keyCode: e.keyCode,
+          });
         };
+        document.addEventListener("keydown", (e) => {
+          this.currentScene.onClick({
+            type: "keyboard",
+            kind: "keyPress",
+            keyCode: e.keyCode,
+          });
+        });
+        this.renderer = new Renderer(boardElement);
+        this.nextScene({ caller: "init" });
       }
 
-      restart(difficulty = Difficulty.Normal) {
-        this.board = new Board(this, difficulty);
-        this.gameOverFlag = false;
-        this.render();
+      nextScene({ caller, args }) {
+        if (caller === "startGame") {
+          this.currentScene = new BoardScene(
+            this.renderer,
+            args.difficulty,
+            (game) => this.nextScene({ caller: "board", game }),
+          );
+        }
+        if (caller === "board") {
+          this.currentScene = new GameOverScene(this.renderer, () =>
+            this.nextScene({ caller: "gameOver" }),
+          );
+        }
+        if (caller === "gameOver" || caller === "init") {
+          this.currentScene = new StartGameScene(this.renderer, (difficulty) =>
+            this.nextScene({ caller: "startGame", args: difficulty }),
+          );
+        }
+
+        this.renderer.next();
+        this.currentScene.render();
       }
 
-      gameOver() {
-        this.gameOverFlag = true;
+      start() {
+        this.currentScene.render();
       }
 
       onClick(e, game, kind) {
         e.preventDefault();
+
         const bounding = e.target.getBoundingClientRect();
 
-        console.log(e.target, e.clientX, bounding);
+        const relativeX =
+          (e.clientX - bounding.x) /
+          (bounding.width - bounding.x / this.currentScene.width);
+        const relativeY =
+          (e.clientY - bounding.y) /
+          (bounding.height - bounding.x / this.currentScene.height);
 
-        if (this.gameOverFlag) this.restart();
-
-        this.board.onClick(
-          Math.round(
-            ((e.clientX - bounding.x) * this.board.width) / bounding.width,
-          ),
-          Math.round(
-            ((e.clientY - bounding.y) * this.board.height) / bounding.height,
-          ),
-          kind,
-        );
-
-        this.render();
-      }
-
-      generateText(text) {
-        const padding = [...new Array(this.board.width)]
-          .map((_) => "·")
-          .join("");
-        const title =
-          padding.substring(0, padding.length / 2 - text.length / 2 + 1) +
-          text +
-          padding.substring(0, padding.length / 2 - text.length / 2) +
-          "\r\n";
-
-        return padding + "\r\n" + title + padding + "\r\n";
-      }
-
-      render() {
-        this.boardElement.innerText = "";
-
-        if (this.gameOverFlag) {
-          this.boardElement.innerText = this.generateText(Game.gameOverText);
-          this.boardElement.innerText += this.generateText(
-            "Press 'Space' to RestartX",
-          );
-        }
-
-        this.boardElement.innerText += this.board.render();
-        this.boardElement.style.fontFamily =
-          "Noto Mono, Roboto Mono, Source Code Pro, monospace";
-        // this.element.innerText += "\r\n";
-        // this.element.innerText += this.generateText(
-        //   "Press 1 = Bae"
-        // );
-        // this.element.innerText += this.generateText(
-        //   "Press 2 = Ok."
-        // );
-        // this.element.innerText += this.generateText(
-        //   "Press 3 = Jesus"
-        // );
+        this.currentScene.onClick({
+          type: "mouse",
+          kind: kind,
+          x: relativeX,
+          y: relativeY,
+        });
       }
     }
 
     class Page {}
 
     const game = new Game();
-
-    game.render();
   </script>
   <style>
     body {
-      height: 100vh;
-      display: flex;
-      margin: auto auto;
+      color: rgb(68, 164, 68);
+      background-color: rgb(15, 15, 15);
+      overflow: scroll;
+    }
+
+    #board {
+      font-family: "Courier New", Courier, monospace;
+      white-space: pre-wrap;
       letter-spacing: 1ch;
-      width: fit-content;
-      background-color: black;
-      color: green;
       cursor: pointer;
+      position: fixed;
     }
   </style>
 </html>
